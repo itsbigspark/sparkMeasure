@@ -1,14 +1,16 @@
 package ch.cern.sparkmeasure
 
+import com.influxdb.client.InfluxDBClient
 import org.apache.spark.scheduler.{SparkListener, SparkListenerApplicationEnd, SparkListenerApplicationStart, SparkListenerEvent, SparkListenerExecutorAdded, SparkListenerJobEnd, SparkListenerJobStart, SparkListenerStageCompleted, SparkListenerStageSubmitted, SparkListenerTaskEnd, SparkListenerTaskStart, TaskLocality}
 import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
-import org.influxdb.InfluxDBFactory
-import org.influxdb.BatchOptions
-import org.influxdb.dto.Point
-import java.util.concurrent.TimeUnit
+import com.influxdb.client.write.Point
+//import org.influxdb.InfluxDBFactory
+//import org.influxdb.BatchOptions
+//import org.influxdb.dto.Point
 
+import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
 
 /**
@@ -43,34 +45,34 @@ import org.slf4j.LoggerFactory
 class InfluxDBSink(conf: SparkConf) extends SparkListener {
 
   lazy val logger = LoggerFactory.getLogger(this.getClass.getName)
-  logger.warn("Custom monitoring listener with InfluxDB sink initializing. Now attempting to connect to InfluxDB")
+ //  logger.warn("Custom monitoring listener with InfluxDB sink initializing. Now attempting to connect to InfluxDB")
 
   // Initialize InfluxDB connection
-  val url = Utils.parseInfluxDBURL(conf, logger)
-  val (username, password) = Utils.parseInfluxDBCredentials(conf, logger)
-
+  //  val url = Utils.parseInfluxDBURL(conf, logger)
+  val (influxdbToken,influxdbBucket,influxdbOrg, influxdbUrl) = Utils.parseInfluxDBConnectionValues(conf, logger)
+  val influxDBReporter : InfluxDBReporter = new InfluxDBReporter(influxdbToken,influxdbBucket,influxdbOrg, influxdbUrl)
   // Tries to connect to InfluxDB, using the given URL and credentials
-  val influxDB =  username match {
-    case username if username.isEmpty =>
-      // no username and password, InfluxDB must be running with auth-enabled=false
-      InfluxDBFactory.connect(url)
-    case _ => InfluxDBFactory.connect(url, username, password)
-  }
-
-  val dbName = Utils.parseInfluxDBName(conf, logger)
-  if (!influxDB.databaseExists(dbName)) {
-    influxDB.createDatabase(dbName)
-  }
-  val database = influxDB.setDatabase(dbName)
-  logger.info((s"using InfluxDB database $dbName"))
-
-  val logStageMetrics = Utils.parseInfluxDBStagemetrics(conf, logger)
-
-  val enableBatch = conf.getBoolean("spark.sparkmeasure.influxdbEnableBatch", true)
-  if (enableBatch) {
-    // Flush every 1000 Points, at least every 1000ms
-    influxDB.enableBatch(BatchOptions.DEFAULTS.actions(1000).flushDuration(1000))
-  }
+//  val influxDB =  username match {
+//    case username if username.isEmpty =>
+//      // no username and password, InfluxDB must be running with auth-enabled=false
+//      InfluxDBFactory.connect(url)
+//    case _ => InfluxDBFactory.connect(url, username, password)
+//  }
+//
+//  val dbName = Utils.parseInfluxDBName(conf, logger)
+//  if (!influxDB.databaseExists(dbName)) {
+//    influxDB.createDatabase(dbName)
+//  }
+//  val database = influxDB.setDatabase(dbName)
+//  logger.info((s"using InfluxDB database $dbName"))
+//
+//  val logStageMetrics = Utils.parseInfluxDBStagemetrics(conf, logger)
+//
+//  val enableBatch = conf.getBoolean("spark.sparkmeasure.influxdbEnableBatch", true)
+//  if (enableBatch) {
+//    // Flush every 1000 Points, at least every 1000ms
+//    influxDB.enableBatch(BatchOptions.DEFAULTS.actions(1000).flushDuration(1000))
+//  }
 
   var appId = "noAppId"
 
@@ -82,28 +84,36 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
   override def onExecutorAdded(executorAdded: SparkListenerExecutorAdded): Unit = {
     val executorId = executorAdded.executorId
     val executorInfo = executorAdded.executorInfo
-    val startTime = executorAdded.time
-    val point = Point.measurement("executors_started")
-      .tag("applicationId", appId)
+    val startTime : Long = executorAdded.time
+
+//    val map: java.util.Map[String, Object] = null
+//
+//    map.put("applicationId", appId)
+//    map.put("executorId", executorId)
+//    map.put("executorHost", executorInfo.executorHost)
+//    map.put("totalCores", executorInfo.totalCores)
+
+    val point : Point = Point.measurement("executors_started")
+      .addTag("applicationId", appId)
+//      .addFields(map)
       .addField("executorId", executorId)
       .addField("executorHost", executorInfo.executorHost)
       .addField("totalCores", executorInfo.totalCores)
-      .time(startTime, TimeUnit.MILLISECONDS)
-      .build()
-    database.write(point)
-  }
+//      .time(startTime, TimeUnit.MILLISECONDS)
 
-  override def onStageSubmitted(stageSubmitted: SparkListenerStageSubmitted): Unit = {
+    influxDBReporter.post(point, startTime, TimeUnit.MILLISECONDS)
+
+  def onStageSubmitted(stageSubmitted: SparkListenerStageSubmitted): Unit = {
     val submissionTime = stageSubmitted.stageInfo.submissionTime.getOrElse(0L)
     val attemptNumber = stageSubmitted.stageInfo.attemptNumber()
     val stageId = stageSubmitted.stageInfo.stageId
     val point = Point.measurement("stages_started")
-      .tag("applicationId", appId)
+      .addTag("applicationId", appId)
       .addField("stageId", stageId)
       .addField("attemptNUmber", attemptNumber)
       .time(submissionTime, TimeUnit.MILLISECONDS)
-      .build()
-    database.write(point)
+//      .build()
+//    database.write(point)
   }
 
   override def onStageCompleted(stageCompleted: SparkListenerStageCompleted): Unit = {

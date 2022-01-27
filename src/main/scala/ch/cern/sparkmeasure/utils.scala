@@ -118,6 +118,22 @@ object Utils {
     metricsFileName
   }
 
+  //todo - Add a configuration switch for old/new style influxDB
+
+  def parseInfluxDBConnectionValues(conf : SparkConf, logger: Logger) : (String, String, String, String) = {
+    val influxdbToken = conf.get("spark.sparkmeasure.influxdbToken", "")
+    val influxdbBucket = conf.get("spark.sparkmeasure.influxdbBucket", "")
+    val influxdbOrg = conf.get("spark.sparkmeasure.influxdbOrg", "")
+    val influxdbUrl = conf.get("spark.sparkmeasure.influxdbUrl", "")
+    if (influxdbToken.isEmpty && influxdbBucket.isEmpty && influxdbOrg.isEmpty && influxdbUrl.isEmpty ) {
+      logger.warn("Connection details for InfluxDB connection not found "  +
+        "please ensure that influxdbToken,influxdbBucket,influxdbOrg and influxdbUrl configururation parameters are provided")
+    } else {
+      logger.info("Connection details for InfluxDB connection found")
+    }
+    (influxdbToken,influxdbBucket,influxdbOrg, influxdbUrl)
+  }
+
   def parseInfluxDBURL(conf: SparkConf, logger: Logger) : String = {
     // handle InfluxDB URL
     val influxdbURL = conf.get("spark.sparkmeasure.influxdbURL", "")
