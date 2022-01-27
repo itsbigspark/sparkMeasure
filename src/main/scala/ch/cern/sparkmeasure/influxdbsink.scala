@@ -6,9 +6,6 @@ import org.apache.spark.sql.execution.ui.{SparkListenerSQLExecutionEnd, SparkLis
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkConf
 import com.influxdb.client.write.Point
-//import org.influxdb.InfluxDBFactory
-//import org.influxdb.BatchOptions
-//import org.influxdb.dto.Point
 
 import java.util.concurrent.TimeUnit
 import org.slf4j.LoggerFactory
@@ -66,12 +63,12 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
 //  val database = influxDB.setDatabase(dbName)
 //  logger.info((s"using InfluxDB database $dbName"))
 //
-//  val logStageMetrics = Utils.parseInfluxDBStagemetrics(conf, logger)
+  val logStageMetrics = Utils.parseInfluxDBStagemetrics(conf, logger)
 //
 //  val enableBatch = conf.getBoolean("spark.sparkmeasure.influxdbEnableBatch", true)
 //  if (enableBatch) {
-//    // Flush every 1000 Points, at least every 1000ms
-//    influxDB.enableBatch(BatchOptions.DEFAULTS.actions(1000).flushDuration(1000))
+//     Flush every 1000 Points, at least every 1000ms
+//    influxDBReporter.influxDB..enableBatch(BatchOptions.DEFAULTS.actions(1000).flushDuration(1000))
 //  }
 
   var appId = "noAppId"
@@ -84,36 +81,25 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
   override def onExecutorAdded(executorAdded: SparkListenerExecutorAdded): Unit = {
     val executorId = executorAdded.executorId
     val executorInfo = executorAdded.executorInfo
-    val startTime : Long = executorAdded.time
+    val startTime: Long = executorAdded.time
 
-//    val map: java.util.Map[String, Object] = null
-//
-//    map.put("applicationId", appId)
-//    map.put("executorId", executorId)
-//    map.put("executorHost", executorInfo.executorHost)
-//    map.put("totalCores", executorInfo.totalCores)
-
-    val point : Point = Point.measurement("executors_started")
+    val point: Point = Point.measurement("executors_started")
       .addTag("applicationId", appId)
-//      .addFields(map)
       .addField("executorId", executorId)
       .addField("executorHost", executorInfo.executorHost)
       .addField("totalCores", executorInfo.totalCores)
-//      .time(startTime, TimeUnit.MILLISECONDS)
+    influxDBReporter.post(point)
+  }
 
-    influxDBReporter.post(point, startTime, TimeUnit.MILLISECONDS)
-
-  def onStageSubmitted(stageSubmitted: SparkListenerStageSubmitted): Unit = {
+  override def onStageSubmitted(stageSubmitted: SparkListenerStageSubmitted): Unit = {
     val submissionTime = stageSubmitted.stageInfo.submissionTime.getOrElse(0L)
     val attemptNumber = stageSubmitted.stageInfo.attemptNumber()
     val stageId = stageSubmitted.stageInfo.stageId
     val point = Point.measurement("stages_started")
       .addTag("applicationId", appId)
       .addField("stageId", stageId)
-      .addField("attemptNUmber", attemptNumber)
-      .time(submissionTime, TimeUnit.MILLISECONDS)
-//      .build()
-//    database.write(point)
+      .addField("attemptNumber", attemptNumber)
+    influxDBReporter.post(point)
   }
 
   override def onStageCompleted(stageCompleted: SparkListenerStageCompleted): Unit = {
@@ -122,20 +108,17 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
     val completionTime = stageCompleted.stageInfo.completionTime.getOrElse(0L)
     val attemptNumber = stageCompleted.stageInfo.attemptNumber()
 
-    val point1 = Point.measurement("stages_ended")
-      .tag("applicationId", appId)
-      .time(completionTime, TimeUnit.MILLISECONDS)
+    val point : Point = Point.measurement("stages_ended")
+      .addTag("applicationId", appId)
       .addField("stageId", stageId)
       .addField("attemptNumber", attemptNumber)
       .addField("submissionTime", submissionTime)
-      .build()
-    database.write(point1)
+    influxDBReporter.post(point)
 
     if (logStageMetrics) {
       val taskmetrics = stageCompleted.stageInfo.taskMetrics
-      val point2 = Point.measurement("stage_metrics")
-        .tag("applicationId", appId)
-        .time(completionTime, TimeUnit.MILLISECONDS)
+      val point2 : Point = Point.measurement("stage_metrics")
+        .addTag("applicationId", appId)
         .addField("stageId", stageId)
         .addField("attemptNumber", attemptNumber)
         .addField("failureReason", stageCompleted.stageInfo.failureReason.getOrElse(""))
@@ -166,8 +149,7 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
         .addField("shuffleBytesWritten", taskmetrics.shuffleWriteMetrics.bytesWritten)
         .addField("shuffleRecordsWritten", taskmetrics.shuffleWriteMetrics.recordsWritten)
         .addField("shuffleWriteTime", taskmetrics.shuffleWriteMetrics.writeTime)
-        .build()
-      database.write(point2)
+      influxDBReporter.post(point2)
     }
   }
 
@@ -178,25 +160,19 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
         val queryId = e.executionId
         val description = e.description
         // val details = e.details
-
-        val point = Point.measurement("queries_started")
-          .tag("applicationId", appId)
-          .time(startTime, TimeUnit.MILLISECONDS)
+        val point : Point = Point.measurement("queries_started")
+          .addTag("applicationId", appId)
           .addField("description", description)
           .addField("queryId", queryId)
-          .build()
-        database.write(point)
+        influxDBReporter.post(point)
       }
       case e: SparkListenerSQLExecutionEnd => {
         val endTime = e.time
         val queryId = e.executionId
-
-        val point = Point.measurement("queries_ended")
-          .tag("applicationId", appId)
-          .time(endTime, TimeUnit.MILLISECONDS)
+        val point : Point = Point.measurement("queries_ended")
+          .addTag("applicationId", appId)
           .addField("queryId", queryId)
-          .build()
-        database.write(point)
+        influxDBReporter.post(point)
       }
       case _ => None // Ignore
     }
@@ -205,35 +181,34 @@ class InfluxDBSink(conf: SparkConf) extends SparkListener {
   override def onJobStart(jobStart: SparkListenerJobStart): Unit = {
     val startTime = jobStart.time
     val jobId = jobStart.jobId
-
-    val point = Point.measurement("jobs_started")
-      .tag("applicationId", appId)
-      .time(startTime, TimeUnit.MILLISECONDS)
+    val point : Point = Point.measurement("jobs_started")
+      .addTag("applicationId", appId)
       .addField("jobID", jobId)
-      .build()
-    database.write(point)
+    influxDBReporter.post(point)
   }
 
   override def onJobEnd(jobEnd: SparkListenerJobEnd): Unit = {
     val completionTime = jobEnd.time
     val jobId = jobEnd.jobId
-
-    val point = Point.measurement("jobs_ended")
-      .tag("applicationId", appId)
-      .time(completionTime, TimeUnit.MILLISECONDS)
+    val point : Point = Point.measurement("jobs_ended")
+      .addTag("applicationId", appId)
       .addField("jobID", jobId)
-      .build()
-    database.write(point)
+    influxDBReporter.post(point)
   }
 
   override def onApplicationStart(applicationStart: SparkListenerApplicationStart): Unit = {
     appId = applicationStart.appId.getOrElse("noAppId")
-    // val appName = applicationStart.appName
+    val point : Point = Point.measurement("application_start")
+      .addTag("applicationId", appId)
+    influxDBReporter.post(point)
   }
 
   override def onApplicationEnd(applicationEnd: SparkListenerApplicationEnd): Unit = {
     logger.info(s"Spark application ended, timestamp = ${applicationEnd.time}, closing InfluxDB connection.")
-    influxDB.close()
+    val point : Point = Point.measurement("application_end")
+      .addTag("applicationId", appId)
+    influxDBReporter.post(point)
+    influxDBReporter.close()
   }
 
 }
@@ -248,34 +223,27 @@ class InfluxDBSinkExtended(conf: SparkConf) extends InfluxDBSink(conf: SparkConf
 
   override def onTaskStart(taskStart: SparkListenerTaskStart): Unit = {
     val taskInfo = taskStart.taskInfo
-    val point = Point.measurement("tasks_started")
-      .tag("applicationId", appId)
-      .time(taskInfo.launchTime, TimeUnit.MICROSECONDS)
+    val point : Point = Point.measurement("tasks_started")
+      .addTag("applicationId", appId)
       .addField("taskId", taskInfo.taskId)
       .addField("attemptNumber", taskInfo.attemptNumber)
       .addField("stageId", taskStart.stageId)
-      .build()
-    database.write(point)
+    influxDBReporter.post(point)
   }
 
   override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit = {
     val taskInfo = taskEnd.taskInfo
     val taskmetrics = taskEnd.taskMetrics
-
-    val point1 = Point.measurement("tasks_ended")
-      .tag("applicationId", appId)
-      .time(taskInfo.finishTime, TimeUnit.MILLISECONDS)
+    val point : Point = Point.measurement("tasks_ended")
+      .addTag("applicationId", appId)
       .addField("taskId", taskInfo.taskId)
       .addField("attemptNumber", taskInfo.attemptNumber)
       .addField("launchTime", taskInfo.launchTime)
       .addField("stageId", taskEnd.stageId)
-      .build()
-    database.write(point1)
+    influxDBReporter.post(point)
 
-    val point2 = Point.measurement("task_metrics")
-      .tag("applicationId", appId)
-      .time(taskInfo.finishTime, TimeUnit.MILLISECONDS)
-      // task info
+    val point2 : Point = Point.measurement("task_metrics")
+      .addTag("applicationId", appId)
       .addField("taskId", taskInfo.taskId)
       .addField("attemptNumber", taskInfo.attemptNumber)
       .addField("stageId", taskEnd.stageId)
@@ -316,7 +284,6 @@ class InfluxDBSinkExtended(conf: SparkConf) extends InfluxDBSink(conf: SparkConf
       .addField("shuffleBytesWritten", taskmetrics.shuffleWriteMetrics.bytesWritten)
       .addField("shuffleRecordsWritten", taskmetrics.shuffleWriteMetrics.recordsWritten)
       .addField("shuffleWriteTime", taskmetrics.shuffleWriteMetrics.writeTime)
-      .build()
-    database.write(point2)
+    influxDBReporter.post(point2)
   }
 }

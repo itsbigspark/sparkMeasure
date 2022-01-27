@@ -24,17 +24,14 @@ class InfluxDBReporter (influxdbToken : String,influxdbBucket : String ,influxdb
 //  private val org = "bigspark.dev"
 //  private val url = "https://eu-central-1-1.aws.cloud2.influxdata.com"
 
-  private var influxDB : InfluxDBClient = ensureInfluxDBCon();
+  var influxDB : InfluxDBClient = ensureInfluxDBCon();
 
   lazy val logger = LoggerFactory.getLogger(this.getClass.getName)
 
-  def post(point : Point, timeStamp : AnyRef, precision : WritePrecision): Unit = {
+  def post(point : Point): Unit = {
     ensureInfluxDBCon()
     val writeApi = this.influxDB.getWriteApiBlocking
     try {
-//      val point = Point.measurement(measurement)
-//        .addTag("appId", appId).addFields(fields)
-//        .time(startTime, WritePrecision.MS)
       writeApi.writePoint(this.bucket, this.org, point)
     } catch {
       case ex: InfluxException =>
